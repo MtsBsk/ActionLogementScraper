@@ -66,7 +66,9 @@ def save_seen_offers(seen: set):
 
 
 def _parse_offer(offer_id: str, attrs: dict) -> dict:
-    rent_with_charges = attrs.get("rent_with_charges", 0) or 0
+    raw_rwc = attrs.get("rent_with_charges")
+    rent_with_charges_is_set = raw_rwc is not None
+    rent_with_charges = raw_rwc if raw_rwc else 0
     rent_amount = attrs.get("rent_amount", 0) or 0
     effective_rent = rent_with_charges if rent_with_charges else rent_amount
 
@@ -88,6 +90,7 @@ def _parse_offer(offer_id: str, attrs: dict) -> dict:
         "residence_title": attrs.get("residence_title", ""),
         "rent_amount": rent_amount,
         "rent_with_charges": rent_with_charges,
+        "rent_with_charges_is_set": rent_with_charges_is_set,
         "effective_rent": effective_rent,
         "rental_charges": attrs.get("rental_charges", 0) or 0,
         "guarantee_deposit": attrs.get("guarantee_deposit", 0) or 0,
@@ -109,6 +112,8 @@ def _parse_offer(offer_id: str, attrs: dict) -> dict:
 
 
 def _passes_filters(offer: dict) -> bool:
+    if not offer["rent_with_charges_is_set"]:
+        return False
     if FILTER_MAX_RENT and offer["effective_rent"] > FILTER_MAX_RENT:
         return False
     if FILTER_MIN_ROOMS and offer["rooms"] < FILTER_MIN_ROOMS:
