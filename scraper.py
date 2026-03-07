@@ -103,7 +103,7 @@ def _parse_offer(offer_id: str, attrs: dict) -> dict:
         "dpe_conso": attrs.get("dpe_conso", ""),
         "applicants": attrs.get("appicated_nb", 0) or 0,
         "photo_url": photo_url,
-        "link": f"{SITE_BASE}/#/offre/{offer_id}",
+        "link": f"{SITE_BASE}/#/home-logements",
     }
 
 
