@@ -1,0 +1,40 @@
+name: Scrape Action Logement
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore cache
+        uses: actions/cache@v4
+        with:
+          path: seen_offers.json
+          key: seen-offers-${{ github.run_id }}
+          restore-keys: seen-offers-
+
+      - name: Run scraper
+        env:
+          FILTER_DEPARTMENTS: ${{ vars.FILTER_DEPARTMENTS }}
+          FILTER_MAX_RENT: ${{ vars.FILTER_MAX_RENT }}
+          FILTER_MIN_ROOMS: ${{ vars.FILTER_MIN_ROOMS }}
+          FILTER_MAX_ROOMS: ${{ vars.FILTER_MAX_ROOMS }}
+          FILTER_MIN_SURFACE: ${{ vars.FILTER_MIN_SURFACE }}
+          FILTER_TYPOLOGIES: ${{ vars.FILTER_TYPOLOGIES }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL_TO: ${{ vars.EMAIL_TO }}
+          EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+        run: python scraper.py
