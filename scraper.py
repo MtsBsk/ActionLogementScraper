@@ -103,8 +103,8 @@ def _parse_offer(offer_id: str, attrs: dict) -> dict:
         "dpe_conso": attrs.get("dpe_conso", ""),
         "applicants": attrs.get("appicated_nb", 0) or 0,
         "photo_url": photo_url,
-        "link_search": f"{SITE_BASE}/#/home-logements",
-        "link_map": f"https://www.google.com/maps/search/{attrs.get('address', '')}+{attrs.get('postal_code', '')}+{attrs.get('district', '')}".replace(" ", "+"),
+        "link": f"{SITE_BASE}/#/home-logements",
+        "link_map": f"https://www.google.com/maps/search/?api=1&query={attrs.get('address', '')}+{attrs.get('postal_code', '')}+{attrs.get('district', '')}".replace(" ", "+"),
     }
 
 
@@ -205,11 +205,12 @@ def send_email(new_offers: list[dict]):
             {photo_block}
             <div style="padding:12px;">
                 <strong style="font-size:16px;">
-                    {o['typology']} - {o['surface']}m\u00b2 - {o['rooms']} pi\u00e8ce(s)
+                    <a href="{o['link']}" style="color:#1a4d8f; text-decoration:none;">
+                        {o['typology']} - {o['surface']}m\u00b2 - {o['rooms']} pi\u00e8ce(s)
+                    </a>
                 </strong><br>
                 <span style="font-size:20px; font-weight:bold; color:#e63946;">{rent_display}</span><br>
-                <span>\U0001f4cd <a href="{o['link_map']}" style="color:#1a4d8f;">{o['postal_code']} {o['district']}</a></span>
-                <span style="margin-left:8px;"><a href="{o['link_search']}" style="color:#888; font-size:12px;">Voir sur AL'in</a></span><br>
+                <span>\U0001f4cd <a href="{o['link_map']}" style="color:#1a4d8f; text-decoration:none;">{o['postal_code']} {o['district']} - {o['address']}</a></span><br>
                 <span>\U0001f3e2 {floor_str}{elevator_str}</span><br>
                 <span>\U0001f6cf\ufe0f {o['bedrooms']} chambre(s)</span><br>
                 <span>\U0001f4c5 Disponible : {o['availability_date'] or 'N/C'}</span><br>
