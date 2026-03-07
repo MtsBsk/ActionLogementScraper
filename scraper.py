@@ -108,6 +108,8 @@ def _parse_offer(offer_id: str, attrs: dict) -> dict:
 
 
 def _passes_filters(offer: dict) -> bool:
+    if not offer["rent_with_charges"]:
+        return False
     if FILTER_MAX_RENT and offer["effective_rent"] > FILTER_MAX_RENT:
         return False
     if FILTER_MIN_ROOMS and offer["rooms"] < FILTER_MIN_ROOMS:
