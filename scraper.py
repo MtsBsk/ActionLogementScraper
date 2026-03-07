@@ -17,10 +17,10 @@ FILTER_DEPARTMENTS = [
     for d in os.getenv("FILTER_DEPARTMENTS", "75,92,93,94").split(",")
     if d.strip()
 ]
-FILTER_MAX_RENT = int(os.getenv("FILTER_MAX_RENT", "0"))
-FILTER_MIN_ROOMS = int(os.getenv("FILTER_MIN_ROOMS", "0"))
-FILTER_MAX_ROOMS = int(os.getenv("FILTER_MAX_ROOMS", "0"))
-FILTER_MIN_SURFACE = float(os.getenv("FILTER_MIN_SURFACE", "0"))
+FILTER_MAX_RENT = int(os.getenv("FILTER_MAX_RENT") or "0")
+FILTER_MIN_ROOMS = int(os.getenv("FILTER_MIN_ROOMS") or "0")
+FILTER_MAX_ROOMS = int(os.getenv("FILTER_MAX_ROOMS") or "0")
+FILTER_MIN_SURFACE = float(os.getenv("FILTER_MIN_SURFACE") or "0")
 FILTER_TYPOLOGIES = [
     t.strip()
     for t in os.getenv("FILTER_TYPOLOGIES", "").split(",")
