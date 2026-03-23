@@ -41,9 +41,6 @@ ALIN_EMAIL = os.getenv("ALIN_EMAIL", "")
 ALIN_PASSWORD = os.getenv("ALIN_PASSWORD", "")
 ALIN_NUR = os.getenv("ALIN_NUR", "")
 
-ALIN_RENT_MIN = int(os.getenv("ALIN_RENT_MIN") or "0")
-ALIN_RENT_MAX = int(os.getenv("ALIN_RENT_MAX") or "0")
-
 BEYS_AUTH_URL = "https://api.be-ys.com/als-back/v1/accounts/authenticate"
 BEYS_API_KEY = "7d6bfa55-4632-41ed-bddd-597866ebbfb5"
 TOKEN_EXCHANGE_URL = f"{API_BASE}/api/token_exchange/als_hermes_salarie"
@@ -188,7 +185,7 @@ def fetch_offers() -> list[dict]:
 def _authenticate() -> str | None:
     """Authenticate via be-ys and exchange token for al-in.fr Bearer JWT.
     Returns the Bearer token or None if credentials are missing or auth fails."""
-    if not ALIN_EMAIL or not ALIN_PASSWORD or not ALIN_NUR:
+    if not ALIN_EMAIL or not ALIN_PASSWORD:
         return None
 
     try:
@@ -226,51 +223,49 @@ def _authenticate() -> str | None:
         return None
 
 
-def fetch_eligible_offers(token: str) -> list[dict]:
-    """Fetch company-reserved offers from the authenticated eligible_offers API."""
+def fetch_authenticated_offers(token: str) -> list[dict]:
+    """Fetch all offers (including company-reserved) from the authenticated housing_offers API."""
     all_offers = []
     page = 1
+    today = date.today().isoformat()
 
     while True:
-        params = {
-            "per_page": PER_PAGE,
-            "page": page,
-            "sort[$publication_end_date]": 1,
-            "eligibility_type": "seeked",
-            "options[$]": ["bordering_count", "seeked_count", "other_from_department_count"],
-        }
-        if ALIN_RENT_MIN:
-            params["rent_with_charges[$gte]"] = ALIN_RENT_MIN
-        if ALIN_RENT_MAX:
-            params["rent_with_charges[$lte]"] = ALIN_RENT_MAX
+        param_tuples = []
+        for dept in FILTER_DEPARTMENTS:
+            param_tuples.append(("department[$in][]", dept))
+        param_tuples.extend([
+            ("per_page", PER_PAGE),
+            ("page", page),
+            ("sort[rent_with_charges]", 1),
+            ("publication_end_date[$gte]", today),
+            ("date_publication_start[$lte]", today),
+        ])
+
         r = requests.get(
-            f"{API_BASE}/api/dmo/housing_requests/{ALIN_NUR}/eligible_offers",
-            params=params,
+            f"{API_BASE}/api/dmo/housing_offers",
+            params=param_tuples,
             headers={**HEADERS, "Authorization": f"Bearer {token}"},
             timeout=30,
         )
         if page == 1:
-            print(f"[DEBUG] Eligible offers URL: {r.url}")
+            print(f"[DEBUG] Authenticated offers URL: {r.url}")
         r.raise_for_status()
         data = r.json()
 
         results = data.get("data", [])
         meta = data.get("meta", {}).get("pagination", {})
         total_pages = meta.get("total_pages", 1)
-        total_objects = meta.get("total_objects", len(results))
 
         if page == 1:
-            print(f"[INFO] API returned {total_objects} total eligible offers (before filters)")
+            total_objects = meta.get("total_objects", len(results))
+            print(f"[INFO] Authenticated API returned {total_objects} total offers")
 
         for item in results:
             attrs = item.get("attributes", {})
-            offer = _parse_offer(item["id"], attrs, source="reserved")
-            if not _passes_filters(offer):
-                print(f"[DEBUG] Eligible offer {offer['id']} filtered out: "
-                      f"rwc_set={offer['rent_with_charges_is_set']} "
-                      f"rent={offer['effective_rent']} rooms={offer['rooms']} "
-                      f"surface={offer['surface']} typo={offer['typology']}")
-            else:
+            is_public = attrs.get("is_public", True)
+            source = "public" if is_public else "reserved"
+            offer = _parse_offer(item["id"], attrs, source=source)
+            if _passes_filters(offer):
                 all_offers.append(offer)
 
         if page >= total_pages or not results:
@@ -407,31 +402,21 @@ def main():
     if FILTER_TYPOLOGIES:
         print(f"[INFO] Typologies: {', '.join(FILTER_TYPOLOGIES)}")
 
-    print("[INFO] Fetching public offers from API...")
-    offers = fetch_offers()
-    print(f"[INFO] Found {len(offers)} public offers matching filters")
-
-    # Fetch company-reserved offers if credentials are configured
+    # Try authenticated API first (includes public + reserved offers)
     token = _authenticate()
     if token:
-        print("[INFO] Fetching reserved/eligible offers...")
-        eligible = fetch_eligible_offers(token)
-        print(f"[INFO] Found {len(eligible)} reserved offers matching filters")
-        seen_ids = {o["id"] for o in offers}
-        added = 0
-        for o in eligible:
-            if o["id"] not in seen_ids:
-                offers.append(o)
-                seen_ids.add(o["id"])
-                added += 1
-        print(f"[INFO] Added {added} new reserved offers (deduplicated)")
+        print("[INFO] Fetching all offers via authenticated API...")
+        offers = fetch_authenticated_offers(token)
+        reserved_count = sum(1 for o in offers if o.get("source") == "reserved")
+        print(f"[INFO] Found {len(offers)} offers ({reserved_count} reserved)")
     else:
         if ALIN_EMAIL:
-            print("[WARN] Authentication failed, skipping reserved offers")
+            print("[WARN] Authentication failed, falling back to public API")
         else:
-            print("[INFO] No ALIN credentials configured, skipping reserved offers")
-
-    print(f"[INFO] Total: {len(offers)} offers (public + reserved)")
+            print("[INFO] No ALIN credentials, using public API only")
+        print("[INFO] Fetching public offers from API...")
+        offers = fetch_offers()
+        print(f"[INFO] Found {len(offers)} public offers matching filters")
 
     new_offers = [o for o in offers if o["id"] not in seen]
     print(f"[INFO] {len(new_offers)} new offer(s) detected")
