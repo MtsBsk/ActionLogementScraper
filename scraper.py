@@ -249,6 +249,8 @@ def fetch_eligible_offers(token: str) -> list[dict]:
             headers={**HEADERS, "Authorization": f"Bearer {token}"},
             timeout=30,
         )
+        if page == 1:
+            print(f"[DEBUG] Eligible offers URL: {r.url}")
         r.raise_for_status()
         data = r.json()
 
