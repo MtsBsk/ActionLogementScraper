@@ -288,12 +288,13 @@ def fetch_bordering_offers(token: str) -> list[dict]:
 
     while True:
         params = {
-            "per_page": PER_PAGE,
+            "per_page": 30,
             "page": page,
             "sort[$publication_end_date]": 1,
             "eligibility_type": "bordering",
             "rent_with_charges[$gte]": ALIN_RENT_MIN,
             "rent_with_charges[$lte]": ALIN_RENT_MAX,
+            "options[]": ["bordering_count", "seeked_count", "other_from_department_count"],
         }
         r = requests.get(
             f"{API_BASE}/api/dmo/housing_requests/{ALIN_NUR}/eligible_offers",
