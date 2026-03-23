@@ -40,6 +40,8 @@ SITE_BASE = "https://al-in.fr"
 ALIN_EMAIL = os.getenv("ALIN_EMAIL", "")
 ALIN_PASSWORD = os.getenv("ALIN_PASSWORD", "")
 ALIN_NUR = os.getenv("ALIN_NUR", "")
+ALIN_RENT_MIN = int(os.getenv("ALIN_RENT_MIN") or "0")
+ALIN_RENT_MAX = int(os.getenv("ALIN_RENT_MAX") or "0")
 
 BEYS_AUTH_URL = "https://api.be-ys.com/als-back/v1/accounts/authenticate"
 BEYS_API_KEY = "7d6bfa55-4632-41ed-bddd-597866ebbfb5"
@@ -275,13 +277,64 @@ def fetch_authenticated_offers(token: str) -> list[dict]:
     return all_offers
 
 
+def fetch_bordering_offers(token: str) -> list[dict]:
+    """Fetch bordering-commune offers from the eligible_offers API."""
+    if not ALIN_NUR or not ALIN_RENT_MIN or not ALIN_RENT_MAX:
+        print("[INFO] Skipping bordering offers (ALIN_NUR/ALIN_RENT_MIN/ALIN_RENT_MAX not set)")
+        return []
+
+    all_offers = []
+    page = 1
+
+    while True:
+        params = {
+            "per_page": PER_PAGE,
+            "page": page,
+            "sort[$publication_end_date]": 1,
+            "eligibility_type": "bordering",
+            "rent_with_charges[$gte]": ALIN_RENT_MIN,
+            "rent_with_charges[$lte]": ALIN_RENT_MAX,
+        }
+        r = requests.get(
+            f"{API_BASE}/api/dmo/housing_requests/{ALIN_NUR}/eligible_offers",
+            params=params,
+            headers={**HEADERS, "Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        if page == 1:
+            print(f"[DEBUG] Bordering offers URL: {r.url}")
+        r.raise_for_status()
+        data = r.json()
+
+        results = data.get("data", [])
+        meta = data.get("meta", {}).get("pagination", {})
+        total_pages = meta.get("total_pages", 1)
+
+        if page == 1:
+            total_objects = meta.get("total_objects", len(results))
+            print(f"[INFO] Bordering API returned {total_objects} total offers")
+
+        for item in results:
+            attrs = item.get("attributes", {})
+            offer = _parse_offer(item["id"], attrs, source="bordering")
+            if _passes_filters(offer):
+                all_offers.append(offer)
+
+        if page >= total_pages or not results:
+            break
+        page += 1
+
+    return all_offers
+
+
 def send_email(new_offers: list[dict]):
     """Send an email alert with the new offers via Resend."""
     if not RESEND_API_KEY or not EMAIL_TO:
         print("[INFO] Email not configured, printing offers instead:")
         for o in new_offers:
             rent_str = f"{o['effective_rent']:.0f}EUR CC" if o["rent_with_charges"] else f"{o['rent_amount']:.0f}EUR HC"
-            tag = " [RESERVE]" if o.get("source") == "reserved" else ""
+            source = o.get("source", "public")
+            tag = f" [{source.upper()}]" if source != "public" else ""
             print(f"  - {o['typology']} {o['surface']}m2 | {rent_str} | "
                   f"{o['postal_code']} {o['district']} | {o['rooms']}p | "
                   f"{o['applicants']} candidat(s){tag}")
@@ -316,6 +369,12 @@ def send_email(new_offers: list[dict]):
                 ' <span style="background:#2ecc71;color:#fff;font-size:11px;'
                 'padding:2px 6px;border-radius:3px;vertical-align:middle;">'
                 'R\u00e9serv\u00e9</span>'
+            )
+        elif o.get("source") == "bordering":
+            reserved_badge = (
+                ' <span style="background:#3498db;color:#fff;font-size:11px;'
+                'padding:2px 6px;border-radius:3px;vertical-align:middle;">'
+                'Limitrophe</span>'
             )
 
         items_html += f"""
@@ -409,6 +468,18 @@ def main():
         offers = fetch_authenticated_offers(token)
         reserved_count = sum(1 for o in offers if o.get("source") == "reserved")
         print(f"[INFO] Found {len(offers)} offers ({reserved_count} reserved)")
+
+        # Also fetch bordering-commune offers
+        bordering = fetch_bordering_offers(token)
+        seen_ids = {o["id"] for o in offers}
+        added = 0
+        for o in bordering:
+            if o["id"] not in seen_ids:
+                offers.append(o)
+                seen_ids.add(o["id"])
+                added += 1
+        if bordering:
+            print(f"[INFO] Added {added} bordering offers (deduplicated)")
     else:
         if ALIN_EMAIL:
             print("[WARN] Authentication failed, falling back to public API")
