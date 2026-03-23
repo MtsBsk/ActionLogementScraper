@@ -247,11 +247,20 @@ def fetch_eligible_offers(token: str) -> list[dict]:
         results = data.get("data", [])
         meta = data.get("meta", {}).get("pagination", {})
         total_pages = meta.get("total_pages", 1)
+        total_objects = meta.get("total_objects", len(results))
+
+        if page == 1:
+            print(f"[INFO] API returned {total_objects} total eligible offers (before filters)")
 
         for item in results:
             attrs = item.get("attributes", {})
             offer = _parse_offer(item["id"], attrs, source="reserved")
-            if _passes_filters(offer):
+            if not _passes_filters(offer):
+                print(f"[DEBUG] Eligible offer {offer['id']} filtered out: "
+                      f"rwc_set={offer['rent_with_charges_is_set']} "
+                      f"rent={offer['effective_rent']} rooms={offer['rooms']} "
+                      f"surface={offer['surface']} typo={offer['typology']}")
+            else:
                 all_offers.append(offer)
 
         if page >= total_pages or not results:
