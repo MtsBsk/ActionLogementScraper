@@ -40,4 +40,6 @@ jobs:
           ALIN_EMAIL: ${{ secrets.ALIN_EMAIL }}
           ALIN_PASSWORD: ${{ secrets.ALIN_PASSWORD }}
           ALIN_NUR: ${{ secrets.ALIN_NUR }}
+          ALIN_RENT_MIN: ${{ vars.ALIN_RENT_MIN }}
+          ALIN_RENT_MAX: ${{ vars.ALIN_RENT_MAX }}
         run: python scraper.py

@@ -41,6 +41,9 @@ ALIN_EMAIL = os.getenv("ALIN_EMAIL", "")
 ALIN_PASSWORD = os.getenv("ALIN_PASSWORD", "")
 ALIN_NUR = os.getenv("ALIN_NUR", "")
 
+ALIN_RENT_MIN = int(os.getenv("ALIN_RENT_MIN") or "0")
+ALIN_RENT_MAX = int(os.getenv("ALIN_RENT_MAX") or "0")
+
 BEYS_AUTH_URL = "https://api.be-ys.com/als-back/v1/accounts/authenticate"
 BEYS_API_KEY = "7d6bfa55-4632-41ed-bddd-597866ebbfb5"
 TOKEN_EXCHANGE_URL = f"{API_BASE}/api/token_exchange/als_hermes_salarie"
@@ -234,7 +237,12 @@ def fetch_eligible_offers(token: str) -> list[dict]:
             "page": page,
             "sort[$publication_end_date]": 1,
             "eligibility_type": "seeked",
+            "options[$]": ["bordering_count", "seeked_count", "other_from_department_count"],
         }
+        if ALIN_RENT_MIN:
+            params["rent_with_charges[$gte]"] = ALIN_RENT_MIN
+        if ALIN_RENT_MAX:
+            params["rent_with_charges[$lte]"] = ALIN_RENT_MAX
         r = requests.get(
             f"{API_BASE}/api/dmo/housing_requests/{ALIN_NUR}/eligible_offers",
             params=params,
