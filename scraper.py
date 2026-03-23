@@ -1,6 +1,7 @@
 """
 Action Logement (al-in.fr) Housing Scraper
-Fetches new housing offers from the al-in.fr public API and sends email alerts via Resend.
+Fetches new housing offers from the al-in.fr public API (and optionally from the
+authenticated eligible_offers API for company-reserved offers) and sends email alerts via Resend.
 """
 
 import json
@@ -34,6 +35,15 @@ EMAIL_FROM = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
 SEEN_OFFERS_FILE = Path("seen_offers.json")
 API_BASE = "https://api.al-in.fr"
 SITE_BASE = "https://al-in.fr"
+
+# --- Authenticated API (company-reserved offers) ---
+ALIN_EMAIL = os.getenv("ALIN_EMAIL", "")
+ALIN_PASSWORD = os.getenv("ALIN_PASSWORD", "")
+ALIN_NUR = os.getenv("ALIN_NUR", "")
+
+BEYS_AUTH_URL = "https://api.be-ys.com/als-back/v1/accounts/authenticate"
+BEYS_API_KEY = "7d6bfa55-4632-41ed-bddd-597866ebbfb5"
+TOKEN_EXCHANGE_URL = f"{API_BASE}/api/token_exchange/als_hermes_salarie"
 PER_PAGE = 100
 
 HEADERS = {
@@ -65,7 +75,7 @@ def save_seen_offers(seen: set):
     )
 
 
-def _parse_offer(offer_id: str, attrs: dict) -> dict:
+def _parse_offer(offer_id: str, attrs: dict, source: str = "public") -> dict:
     raw_rwc = attrs.get("rent_with_charges")
     rent_with_charges_is_set = raw_rwc is not None
     rent_with_charges = raw_rwc if raw_rwc else 0
@@ -108,6 +118,7 @@ def _parse_offer(offer_id: str, attrs: dict) -> dict:
         "photo_url": photo_url,
         "link": f"{SITE_BASE}/#/home-logements",
         "link_map": f"https://www.google.com/maps/search/?api=1&query={attrs.get('address', '')}+{attrs.get('postal_code', '')}+{attrs.get('district', '')}".replace(" ", "+"),
+        "source": source,
     }
 
 
@@ -171,15 +182,95 @@ def fetch_offers() -> list[dict]:
     return all_offers
 
 
+def _authenticate() -> str | None:
+    """Authenticate via be-ys and exchange token for al-in.fr Bearer JWT.
+    Returns the Bearer token or None if credentials are missing or auth fails."""
+    if not ALIN_EMAIL or not ALIN_PASSWORD or not ALIN_NUR:
+        return None
+
+    try:
+        # Step 1: be-ys authentication
+        r = requests.post(
+            BEYS_AUTH_URL,
+            json={"login": ALIN_EMAIL, "password": ALIN_PASSWORD},
+            headers={"X-Gexrt-Api-Key": BEYS_API_KEY, "Content-Type": "application/json"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        beys_token = r.json().get("access_token")
+        if not beys_token:
+            print("[WARN] be-ys auth returned no access_token")
+            return None
+
+        # Step 2: exchange be-ys token for al-in.fr JWT
+        r = requests.post(
+            TOKEN_EXCHANGE_URL,
+            json={"access_token": beys_token},
+            headers={"Content-Type": "application/json"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if not data.get("success"):
+            print(f"[WARN] Token exchange failed: {data.get('info', 'unknown error')}")
+            return None
+
+        print("[INFO] Authenticated successfully for reserved offers")
+        return data["jwt_token"]
+
+    except requests.RequestException as e:
+        print(f"[WARN] Authentication failed: {e}")
+        return None
+
+
+def fetch_eligible_offers(token: str) -> list[dict]:
+    """Fetch company-reserved offers from the authenticated eligible_offers API."""
+    all_offers = []
+    page = 1
+
+    while True:
+        params = {
+            "per_page": PER_PAGE,
+            "page": page,
+            "sort[$publication_end_date]": 1,
+            "eligibility_type": "seeked",
+        }
+        r = requests.get(
+            f"{API_BASE}/api/dmo/housing_requests/{ALIN_NUR}/eligible_offers",
+            params=params,
+            headers={**HEADERS, "Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+
+        results = data.get("data", [])
+        meta = data.get("meta", {}).get("pagination", {})
+        total_pages = meta.get("total_pages", 1)
+
+        for item in results:
+            attrs = item.get("attributes", {})
+            offer = _parse_offer(item["id"], attrs, source="reserved")
+            if _passes_filters(offer):
+                all_offers.append(offer)
+
+        if page >= total_pages or not results:
+            break
+        page += 1
+
+    return all_offers
+
+
 def send_email(new_offers: list[dict]):
     """Send an email alert with the new offers via Resend."""
     if not RESEND_API_KEY or not EMAIL_TO:
         print("[INFO] Email not configured, printing offers instead:")
         for o in new_offers:
             rent_str = f"{o['effective_rent']:.0f}EUR CC" if o["rent_with_charges"] else f"{o['rent_amount']:.0f}EUR HC"
+            tag = " [RESERVE]" if o.get("source") == "reserved" else ""
             print(f"  - {o['typology']} {o['surface']}m2 | {rent_str} | "
                   f"{o['postal_code']} {o['district']} | {o['rooms']}p | "
-                  f"{o['applicants']} candidat(s)")
+                  f"{o['applicants']} candidat(s){tag}")
         return
 
     resend.api_key = RESEND_API_KEY
@@ -205,6 +296,14 @@ def send_email(new_offers: list[dict]):
                 f'alt="Photo du logement" />'
             )
 
+        reserved_badge = ""
+        if o.get("source") == "reserved":
+            reserved_badge = (
+                ' <span style="background:#2ecc71;color:#fff;font-size:11px;'
+                'padding:2px 6px;border-radius:3px;vertical-align:middle;">'
+                'R\u00e9serv\u00e9</span>'
+            )
+
         items_html += f"""
         <div style="margin-bottom:20px; border:1px solid #e0e0e0; border-radius:6px; overflow:hidden; background:#fff;">
             {photo_block}
@@ -212,7 +311,7 @@ def send_email(new_offers: list[dict]):
                 <strong style="font-size:16px;">
                     <a href="{o['link']}" style="color:#1a4d8f; text-decoration:none;">
                         {o['typology']} - {o['surface']}m\u00b2 - {o['rooms']} pi\u00e8ce(s)
-                    </a>
+                    </a>{reserved_badge}
                 </strong><br>
                 <span style="font-size:20px; font-weight:bold; color:#e63946;">{rent_display}</span><br>
                 <span>\U0001f4cd <a href="{o['link_map']}" style="color:#1a4d8f; text-decoration:none;">{o['postal_code']} {o['district']} - {o['address']}</a></span><br>
@@ -289,9 +388,31 @@ def main():
     if FILTER_TYPOLOGIES:
         print(f"[INFO] Typologies: {', '.join(FILTER_TYPOLOGIES)}")
 
-    print("[INFO] Fetching offers from API...")
+    print("[INFO] Fetching public offers from API...")
     offers = fetch_offers()
-    print(f"[INFO] Found {len(offers)} total offers matching filters")
+    print(f"[INFO] Found {len(offers)} public offers matching filters")
+
+    # Fetch company-reserved offers if credentials are configured
+    token = _authenticate()
+    if token:
+        print("[INFO] Fetching reserved/eligible offers...")
+        eligible = fetch_eligible_offers(token)
+        print(f"[INFO] Found {len(eligible)} reserved offers matching filters")
+        seen_ids = {o["id"] for o in offers}
+        added = 0
+        for o in eligible:
+            if o["id"] not in seen_ids:
+                offers.append(o)
+                seen_ids.add(o["id"])
+                added += 1
+        print(f"[INFO] Added {added} new reserved offers (deduplicated)")
+    else:
+        if ALIN_EMAIL:
+            print("[WARN] Authentication failed, skipping reserved offers")
+        else:
+            print("[INFO] No ALIN credentials configured, skipping reserved offers")
+
+    print(f"[INFO] Total: {len(offers)} offers (public + reserved)")
 
     new_offers = [o for o in offers if o["id"] not in seen]
     print(f"[INFO] {len(new_offers)} new offer(s) detected")

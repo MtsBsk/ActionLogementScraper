@@ -37,4 +37,7 @@ jobs:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           EMAIL_TO: ${{ vars.EMAIL_TO }}
           EMAIL_FROM: ${{ vars.EMAIL_FROM }}
+          ALIN_EMAIL: ${{ secrets.ALIN_EMAIL }}
+          ALIN_PASSWORD: ${{ secrets.ALIN_PASSWORD }}
+          ALIN_NUR: ${{ secrets.ALIN_NUR }}
         run: python scraper.py
