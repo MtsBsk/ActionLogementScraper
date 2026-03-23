@@ -461,33 +461,39 @@ def main():
     if FILTER_TYPOLOGIES:
         print(f"[INFO] Typologies: {', '.join(FILTER_TYPOLOGIES)}")
 
-    # Try authenticated API first (includes public + reserved offers)
+    # Always fetch public offers first
+    print("[INFO] Fetching public offers from API...")
+    offers = fetch_offers()
+    print(f"[INFO] Found {len(offers)} public offers matching filters")
+
+    # If authenticated, also fetch reserved + bordering offers
     token = _authenticate()
     if token:
-        print("[INFO] Fetching all offers via authenticated API...")
-        offers = fetch_authenticated_offers(token)
-        reserved_count = sum(1 for o in offers if o.get("source") == "reserved")
-        print(f"[INFO] Found {len(offers)} offers ({reserved_count} reserved)")
-
-        # Also fetch bordering-commune offers
-        bordering = fetch_bordering_offers(token)
+        # Fetch reserved offers (housing_offers endpoint)
+        print("[INFO] Fetching reserved offers via authenticated API...")
+        auth_offers = fetch_authenticated_offers(token)
         seen_ids = {o["id"] for o in offers}
-        added = 0
+        reserved_added = 0
+        for o in auth_offers:
+            if o["id"] not in seen_ids:
+                offers.append(o)
+                seen_ids.add(o["id"])
+                reserved_added += 1
+        print(f"[INFO] Added {reserved_added} reserved offers (deduplicated from {len(auth_offers)})")
+
+        # Fetch bordering-commune offers
+        bordering = fetch_bordering_offers(token)
+        bordering_added = 0
         for o in bordering:
             if o["id"] not in seen_ids:
                 offers.append(o)
                 seen_ids.add(o["id"])
-                added += 1
-        if bordering:
-            print(f"[INFO] Added {added} bordering offers (deduplicated)")
-    else:
-        if ALIN_EMAIL:
-            print("[WARN] Authentication failed, falling back to public API")
-        else:
-            print("[INFO] No ALIN credentials, using public API only")
-        print("[INFO] Fetching public offers from API...")
-        offers = fetch_offers()
-        print(f"[INFO] Found {len(offers)} public offers matching filters")
+                bordering_added += 1
+        print(f"[INFO] Added {bordering_added} bordering offers (deduplicated from {len(bordering)})")
+
+        print(f"[INFO] Total: {len(offers)} offers (public + {reserved_added} reserved + {bordering_added} bordering)")
+    elif ALIN_EMAIL:
+        print("[WARN] Authentication failed, using public offers only")
 
     new_offers = [o for o in offers if o["id"] not in seen]
     print(f"[INFO] {len(new_offers)} new offer(s) detected")
