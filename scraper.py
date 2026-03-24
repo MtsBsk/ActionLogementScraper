@@ -232,16 +232,13 @@ def fetch_authenticated_offers(token: str) -> list[dict]:
     today = date.today().isoformat()
 
     while True:
-        param_tuples = []
-        for dept in FILTER_DEPARTMENTS:
-            param_tuples.append(("department[$in][]", dept))
-        param_tuples.extend([
+        param_tuples = [
             ("per_page", PER_PAGE),
             ("page", page),
             ("sort[rent_with_charges]", 1),
             ("publication_end_date[$gte]", today),
             ("date_publication_start[$lte]", today),
-        ])
+        ]
 
         r = requests.get(
             f"{API_BASE}/api/dmo/housing_offers",
