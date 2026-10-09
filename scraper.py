@@ -3,6 +3,7 @@ Action Logement (al-in.fr) Housing Scraper
 Fetches new housing offers from the al-in.fr public API (and optionally from the
 authenticated eligible_offers API for company-reserved offers) and sends email alerts via Resend.
 """
+# Last touched: 2026-10-09 (keep-alive commit to avoid GitHub's auto-disable on inactive scheduled workflows)
 
 import json
 import os
