@@ -262,8 +262,15 @@ def fetch_authenticated_offers(token: str) -> list[dict]:
 
         for item in results:
             attrs = item.get("attributes", {})
-            is_public = attrs.get("is_public", True)
-            source = "public" if is_public else "reserved"
+            # "reserved" (tied to reservation_agreement_ref, the Action Logement
+            # company-reservation convention) is the reliable signal for a
+            # company-reserved offer, including multi-company ones. "is_public"
+            # was used before but is not trustworthy: confirmed public offers
+            # pulled straight from the public API come back with is_public
+            # False/None, so relying on it was silently dropping some reserved
+            # offers (eg. multi-company ones) that genuinely had reserved=True.
+            is_reserved = attrs.get("reserved", False)
+            source = "reserved" if is_reserved else "public"
             offer = _parse_offer(item["id"], attrs, source=source)
             if _passes_filters(offer):
                 all_offers.append(offer)
@@ -462,7 +469,7 @@ def main():
 
     # Public offers are skipped entirely: they are not reliably visible to this
     # account on the site (profile-dependent eligibility the public API doesn't
-    # expose), so only company-reserved offers are kept.
+    # expose). Reserved and bordering-commune offers are kept.
     offers = []
     seen_ids = set()
 
@@ -477,9 +484,20 @@ def main():
                 seen_ids.add(o["id"])
                 reserved_added += 1
         print(f"[INFO] Added {reserved_added} reserved offers (deduplicated from {len(auth_offers)})")
-        print(f"[INFO] Total: {len(offers)} offer(s) (reserved only)")
+
+        print("[INFO] Fetching bordering-commune offers...")
+        bordering_offers = fetch_bordering_offers(token)
+        bordering_added = 0
+        for o in bordering_offers:
+            if o["id"] not in seen_ids:
+                offers.append(o)
+                seen_ids.add(o["id"])
+                bordering_added += 1
+        print(f"[INFO] Added {bordering_added} bordering offers (deduplicated from {len(bordering_offers)})")
+
+        print(f"[INFO] Total: {len(offers)} offer(s) (reserved + bordering)")
     else:
-        print("[WARN] Authentication failed, no reserved offers available")
+        print("[WARN] Authentication failed, no reserved/bordering offers available")
 
     new_offers = [o for o in offers if o["id"] not in seen]
     print(f"[INFO] {len(new_offers)} new offer(s) detected")
