@@ -460,39 +460,26 @@ def main():
     if FILTER_TYPOLOGIES:
         print(f"[INFO] Typologies: {', '.join(FILTER_TYPOLOGIES)}")
 
-    # Always fetch public offers first
-    print("[INFO] Fetching public offers from API...")
-    offers = fetch_offers()
-    print(f"[INFO] Found {len(offers)} public offers matching filters")
+    # Public offers are skipped entirely: they are not reliably visible to this
+    # account on the site (profile-dependent eligibility the public API doesn't
+    # expose), so only company-reserved offers are kept.
+    offers = []
+    seen_ids = set()
 
-    # If authenticated, also fetch reserved + bordering offers
     token = _authenticate()
     if token:
-        # Fetch reserved offers (housing_offers endpoint)
         print("[INFO] Fetching reserved offers via authenticated API...")
         auth_offers = fetch_authenticated_offers(token)
-        seen_ids = {o["id"] for o in offers}
         reserved_added = 0
         for o in auth_offers:
-            if o["id"] not in seen_ids:
+            if o["source"] == "reserved" and o["id"] not in seen_ids:
                 offers.append(o)
                 seen_ids.add(o["id"])
                 reserved_added += 1
         print(f"[INFO] Added {reserved_added} reserved offers (deduplicated from {len(auth_offers)})")
-
-        # Fetch bordering-commune offers
-        bordering = fetch_bordering_offers(token)
-        bordering_added = 0
-        for o in bordering:
-            if o["id"] not in seen_ids:
-                offers.append(o)
-                seen_ids.add(o["id"])
-                bordering_added += 1
-        print(f"[INFO] Added {bordering_added} bordering offers (deduplicated from {len(bordering)})")
-
-        print(f"[INFO] Total: {len(offers)} offers (public + {reserved_added} reserved + {bordering_added} bordering)")
-    elif ALIN_EMAIL:
-        print("[WARN] Authentication failed, using public offers only")
+        print(f"[INFO] Total: {len(offers)} offer(s) (reserved only)")
+    else:
+        print("[WARN] Authentication failed, no reserved offers available")
 
     new_offers = [o for o in offers if o["id"] not in seen]
     print(f"[INFO] {len(new_offers)} new offer(s) detected")
